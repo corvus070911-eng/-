@@ -643,7 +643,7 @@
     </div>
 </div>
 <script>
-// ===========音频资源【自行核对文件名大小写】===========
+// ===========音频资源【核对文件名小写mp3】===========
 const homeBgm = new Audio();
 homeBgm.preload = "auto";
 homeBgm.src = "./mainBGM.mp3";
@@ -651,6 +651,8 @@ homeBgm.loop = true;
 homeBgm.volume = 0.35;
 let homeBgmStatus = false;
 let audioUnlocked = false;
+// 关键互斥锁：存在音效时禁止BGM恢复
+let isPlayingSound = false;
 
 const drawAnimAudio = new Audio();
 drawAnimAudio.preload = "auto";
@@ -677,73 +679,73 @@ let modalPlayingCard = null;
 let drawTicket = 15;
 const ticketDom = document.getElementById("drawTicket");
 
-// 恢复BGM，仅当原本BGM是开启状态才恢复
-function resumeBGM(){
-    if(homeBgmStatus){
-        homeBgm.play().catch(e=>console.log("恢复BGM异常",e));
+// 仅无任何音效播放时，才恢复BGM
+function safeResumeBGM() {
+    if (!isPlayingSound && homeBgmStatus) {
+        homeBgm.play().catch(e => console.log("BGM恢复异常", e));
     }
 }
-// 暂停BGM
-function pauseBGM(){
+// 统一暂停BGM
+function pauseMainBGM() {
     homeBgm.pause();
 }
 
-//页面第一次点击，解锁音频
-async function unlockAudioOnce(){
-    if(audioUnlocked) return;
+// 页面点击解锁音频
+async function unlockAudioOnce() {
+    if (audioUnlocked) return;
     audioUnlocked = true;
-    try{
-        await new Promise(resolve=>{
-            homeBgm.oncanplaythrough = resolve;
-        });
+    try {
+        await new Promise(resolve => homeBgm.oncanplaythrough = resolve);
         homeBgm.play();
         homeBgmStatus = true;
-    }catch(e){
-        console.log("自动启动BGM失败，可点右下角喇叭开启：",e);
+    } catch (e) {
+        console.log("自动启动BGM失败，点右下角喇叭开启：", e);
     }
 }
-document.addEventListener("click",unlockAudioOnce,{once:true});
+document.addEventListener("click", unlockAudioOnce, { once: true });
 
-//右下角喇叭开关
-function toggleHomeBGM(){
-    if(!audioUnlocked){
-        unlockAudioOnce();
-        return;
-    }
-    if(homeBgmStatus){
+// 右下角喇叭开关
+function toggleHomeBGM() {
+    if (!audioUnlocked) unlockAudioOnce();
+    else if (homeBgmStatus) {
         homeBgm.pause();
         homeBgmStatus = false;
-    }else{
-        homeBgm.play().catch(e=>console.log("BGM播放异常：",e));
+    } else {
+        homeBgm.play().catch(e => console.log("BGM播放异常：", e));
         homeBgmStatus = true;
     }
 }
 
-//播放抽卡音效：暂停BGM，播放完毕自动恢复BGM
-function playDrawAudio(){
-    pauseBGM();
+// 播放抽卡音效
+function playDrawAudio() {
+    pauseMainBGM();
+    isPlayingSound = true;
     drawAnimAudio.currentTime = 0;
-    drawAnimAudio.play().catch(e=>{});
-    //抽卡音效结束之后恢复BGM
-    drawAnimAudio.onended = function(){
-        resumeBGM();
-    }
+    drawAnimAudio.play().catch(e => {});
+    // 抽卡音效完全结束，解除锁，恢复BGM
+    drawAnimAudio.onended = () => {
+        isPlayingSound = false;
+        safeResumeBGM();
+    };
 }
 
-//播放卡牌语音：暂停BGM，卡牌音频播放结束恢复BGM
-function playCardMusic(cardName){
+// 抽卡结果页卡牌语音
+function playCardMusic(cardName) {
     stopModalCardAudio();
     const audioInfo = cardAudioList[cardName];
-    if(!audioInfo) return;
-    pauseBGM();
+    if (!audioInfo) return;
+
+    pauseMainBGM();
+    isPlayingSound = true;
     const audio = new Audio(audioInfo.src);
     audio.volume = audioInfo.vol;
-    audio.play().catch(e=>console.log("卡牌音频播放异常：",e));
+    audio.play().catch(e => console.log("卡牌音频播放异常：", e));
     currentCardVoice = audio;
-    //卡牌音频播放结束恢复BGM
-    audio.onended = function(){
-        resumeBGM();
-    }
+    // 卡牌语音结束解锁
+    audio.onended = () => {
+        isPlayingSound = false;
+        safeResumeBGM();
+    };
 }
 
 // 停止抽卡页面语音
@@ -751,16 +753,20 @@ function stopDrawCardAudio() {
     if (currentCardVoice) {
         currentCardVoice.pause();
         currentCardVoice = null;
+        isPlayingSound = false;
+        safeResumeBGM();
     }
 }
-//停止图鉴弹窗语音
+// 停止图鉴弹窗语音
 function stopModalCardAudio() {
     if (modalPlayingCard) {
         modalPlayingCard.pause();
         modalPlayingCard = null;
+        isPlayingSound = false;
+        safeResumeBGM();
     }
 }
-//全部卡牌语音停止，BGM不在这里控制，交给onended事件
+// 全部卡牌语音强制停止
 function stopAllCardAudio() {
     stopDrawCardAudio();
     stopModalCardAudio();
@@ -791,7 +797,7 @@ let cardAlbumData = {};
 let getCurrentCard = null;
 let obtainOrder = [];
 
-//DOM元素缓存
+//DOM缓存
 const flipCardDom = document.getElementById("flipCardDom");
 const resultCardImg = document.getElementById("resultCardImg");
 const resultNameDom = document.getElementById("resultNameDom");
@@ -810,37 +816,32 @@ const completeEasterOverlay = document.getElementById("completeEasterOverlay");
 completeEasterOverlay.onclick = function(){
     completeEasterOverlay.classList.remove("open");
 }
-//大图弹窗关闭，停止图鉴音频，并且恢复BGM
+//图鉴弹窗关闭：强制停止卡牌音频、解锁BGM
 modalOverlay.onclick = function(){
     modalOverlay.classList.remove("open");
     stopModalCardAudio();
-    resumeBGM();
 }
 
 function hideAllPage() {
     document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
 }
-
 function backMainPage() {
     hideAllPage();
     document.getElementById("pageMain").classList.add("active");
     stopAllCardAudio();
-    resumeBGM();
     checkAllCardComplete();
 }
-
 function openAlbum() {
     hideAllPage();
     document.getElementById("pageAlbum").classList.add("active");
     stopDrawCardAudio();
     renderAlbum();
 }
-
 function resetCardFlip() {
     flipCardDom.classList.remove("flipped");
 }
 
-//随机抽卡算法
+//随机抽卡
 function randomPickCard() {
     let totalW = cardDatabase.reduce((sum, item) => sum + item.weight, 0);
     let randomNum = Math.random() * totalW;
@@ -850,7 +851,6 @@ function randomPickCard() {
     }
     return cardDatabase[cardDatabase.length - 1];
 }
-
 function getRarityLightClass(rarity) {
     const map = {
         "UR": "light-ur",
@@ -901,14 +901,12 @@ function runPileAnimation() {
         showResultDirectly();
     },4200);
 }
-
 function closeShuffleAnim() {
     shuffleLayer.classList.remove("show");
     shuffleStage.style.animation = "";
     finalCard.style.opacity = "0";
     finalCard.className = "final-card";
 }
-
 function startDrawProcess() {
     if(drawTicket <= 0){
         alert("祈愿次数已用尽！");
@@ -927,7 +925,7 @@ function startDrawProcess() {
     runPileAnimation();
 }
 
-//修复首次抽卡无声，卡牌语音放在翻牌回调
+//翻牌后播放卡牌语音（修复首次无声）
 function showResultDirectly() {
     hideAllPage();
     document.getElementById("pageResult").classList.add("active");
@@ -940,24 +938,23 @@ function showResultDirectly() {
         playCardMusic(getCurrentCard.name);
     }, 380);
 }
-
 function resetFlipBackHome() {
     resetCardFlip();
     setTimeout(() => backMainPage(), 600);
 }
 
-//检测集齐卡牌彩蛋
+//集齐彩蛋
 function checkAllCardComplete(){
     const normalCardList = cardDatabase.filter(item=>item.isNormalCard).map(c=>c.name);
     const collectedNormal = Object.keys(cardAlbumData).filter(name=>normalCardList.includes(name));
-    if(collectedNormal.length >= normalCardList.length){
+    if(collectedNormal.length >= normalCardList){
         setTimeout(()=>{
             completeEasterOverlay.classList.add("open");
         },400);
     }
 }
 
-//渲染图鉴
+//图鉴渲染
 function renderAlbum() {
     albumContainer.innerHTML = "";
     if (obtainOrder.length === 0) {
@@ -985,30 +982,32 @@ function renderAlbum() {
             <div class="album-card-rarity">${targetCard.rarity}</div>
             <div class="album-count">持有 ×${cardAlbumData[cardName]}</div>
         `;
+        //图鉴点击卡牌
         cardBox.onclick = function () {
             modalBigImg.src = targetCard.img;
             modalCardName.innerText = targetCard.name;
             modalCardRarity.innerText = targetCard.rarity;
             modalOverlay.classList.add("open");
             stopModalCardAudio();
-            pauseBGM();
             const audioInfo = cardAudioList[targetCard.name];
-            if(audioInfo){
-                const audio = new Audio(audioInfo.src);
-                audio.volume = audioInfo.vol;
-                audio.play().catch(e=>{});
-                modalPlayingCard = audio;
-                audio.onended = function(){
-                    resumeBGM();
-                }
-            }
+            if(!audioInfo) return;
+            pauseMainBGM();
+            isPlayingSound = true;
+            const audio = new Audio(audioInfo.src);
+            audio.volume = audioInfo.vol;
+            audio.play().catch(e=>{});
+            modalPlayingCard = audio;
+            audio.onended = () => {
+                isPlayingSound = false;
+                safeResumeBGM();
+            };
         };
         gridWrap.appendChild(cardBox);
     });
     albumContainer.appendChild(gridWrap);
 }
 
-//一键解锁测试彩蛋
+//一键解锁全部卡牌测试
 function unlockAllCards(){
     cardDatabase.forEach(card=>{
         if(!cardAlbumData[card.name]){
