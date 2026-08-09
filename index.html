@@ -643,7 +643,7 @@
     </div>
 </div>
 <script>
-// ===========音频资源【核对文件名小写mp3】===========
+// ===========音频资源【文件名统一小写mp3】===========
 const homeBgm = new Audio();
 homeBgm.preload = "auto";
 homeBgm.src = "./mainBGM.mp3";
@@ -651,8 +651,6 @@ homeBgm.loop = true;
 homeBgm.volume = 0.35;
 let homeBgmStatus = false;
 let audioUnlocked = false;
-// 关键互斥锁：存在音效时禁止BGM恢复
-let isPlayingSound = false;
 
 const drawAnimAudio = new Audio();
 drawAnimAudio.preload = "auto";
@@ -679,18 +677,19 @@ let modalPlayingCard = null;
 let drawTicket = 15;
 const ticketDom = document.getElementById("drawTicket");
 
-// 仅无任何音效播放时，才恢复BGM
-function safeResumeBGM() {
-    if (!isPlayingSound && homeBgmStatus) {
-        homeBgm.play().catch(e => console.log("BGM恢复异常", e));
-    }
-}
-// 统一暂停BGM
+// 统一暂停主BGM
 function pauseMainBGM() {
     homeBgm.pause();
 }
 
-// 页面点击解锁音频
+// 仅切回首页时恢复BGM
+function resumeBGMOnlyHome() {
+    if (homeBgmStatus) {
+        homeBgm.play().catch(e => console.log("BGM恢复异常", e));
+    }
+}
+
+// 页面任意点击解锁音频（仅执行一次）
 async function unlockAudioOnce() {
     if (audioUnlocked) return;
     audioUnlocked = true;
@@ -716,36 +715,27 @@ function toggleHomeBGM() {
     }
 }
 
-// 播放抽卡音效
+// 播放抽卡音效：仅暂停BGM，结束不再自动恢复
 function playDrawAudio() {
     pauseMainBGM();
-    isPlayingSound = true;
     drawAnimAudio.currentTime = 0;
     drawAnimAudio.play().catch(e => {});
-    // 抽卡音效完全结束，解除锁，恢复BGM
-    drawAnimAudio.onended = () => {
-        isPlayingSound = false;
-        safeResumeBGM();
-    };
+    // 移除onended自动恢复BGM，空白期不会弹出背景音乐
+    drawAnimAudio.onended = null;
 }
 
-// 抽卡结果页卡牌语音
+// 抽卡结果页卡牌语音：播放完不恢复BGM
 function playCardMusic(cardName) {
     stopModalCardAudio();
     const audioInfo = cardAudioList[cardName];
     if (!audioInfo) return;
 
     pauseMainBGM();
-    isPlayingSound = true;
     const audio = new Audio(audioInfo.src);
     audio.volume = audioInfo.vol;
     audio.play().catch(e => console.log("卡牌音频播放异常：", e));
     currentCardVoice = audio;
-    // 卡牌语音结束解锁
-    audio.onended = () => {
-        isPlayingSound = false;
-        safeResumeBGM();
-    };
+    audio.onended = null;
 }
 
 // 停止抽卡页面语音
@@ -753,8 +743,6 @@ function stopDrawCardAudio() {
     if (currentCardVoice) {
         currentCardVoice.pause();
         currentCardVoice = null;
-        isPlayingSound = false;
-        safeResumeBGM();
     }
 }
 // 停止图鉴弹窗语音
@@ -762,8 +750,6 @@ function stopModalCardAudio() {
     if (modalPlayingCard) {
         modalPlayingCard.pause();
         modalPlayingCard = null;
-        isPlayingSound = false;
-        safeResumeBGM();
     }
 }
 // 全部卡牌语音强制停止
@@ -803,7 +789,7 @@ const resultCardImg = document.getElementById("resultCardImg");
 const resultNameDom = document.getElementById("resultNameDom");
 const resultRarityDom = document.getElementById("resultRarityDom");
 const albumContainer = document.getElementById("albumContainer");
-const shuffleLayer = document.getElementById("shuffleAnimLayer");
+const shuffleLayer = document.getElementById("shuffleStage");
 const shuffleStage = document.getElementById("shuffleStage");
 const finalCard = document.getElementById("finalCard");
 const modalOverlay = document.getElementById("cardModalOverlay");
@@ -816,7 +802,7 @@ const completeEasterOverlay = document.getElementById("completeEasterOverlay");
 completeEasterOverlay.onclick = function(){
     completeEasterOverlay.classList.remove("open");
 }
-//图鉴弹窗关闭：强制停止卡牌音频、解锁BGM
+//图鉴弹窗关闭，不恢复BGM
 modalOverlay.onclick = function(){
     modalOverlay.classList.remove("open");
     stopModalCardAudio();
@@ -825,16 +811,19 @@ modalOverlay.onclick = function(){
 function hideAllPage() {
     document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
 }
+// 切回首页才恢复BGM
 function backMainPage() {
     hideAllPage();
     document.getElementById("pageMain").classList.add("active");
     stopAllCardAudio();
+    resumeBGMOnlyHome();
     checkAllCardComplete();
 }
 function openAlbum() {
     hideAllPage();
     document.getElementById("pageAlbum").classList.add("active");
     stopDrawCardAudio();
+    pauseMainBGM();
     renderAlbum();
 }
 function resetCardFlip() {
@@ -954,7 +943,7 @@ function checkAllCardComplete(){
     }
 }
 
-//图鉴渲染
+//渲染图鉴
 function renderAlbum() {
     albumContainer.innerHTML = "";
     if (obtainOrder.length === 0) {
@@ -972,7 +961,7 @@ function renderAlbum() {
     const gridWrap = document.createElement("div");
     gridWrap.className = "album-grid";
     uniqueCardList.forEach(cardName => {
-        const targetCard = cardDatabase.find(c => c.name === cardName);
+        const targetCard = cardDatabase.find(c => c.name);
         if (!targetCard) return;
         const cardBox = document.createElement("div");
         cardBox.className = "album-card";
@@ -982,32 +971,28 @@ function renderAlbum() {
             <div class="album-card-rarity">${targetCard.rarity}</div>
             <div class="album-count">持有 ×${cardAlbumData[cardName]}</div>
         `;
-        //图鉴点击卡牌
         cardBox.onclick = function () {
             modalBigImg.src = targetCard.img;
             modalCardName.innerText = targetCard.name;
             modalCardRarity.innerText = targetCard.rarity;
             modalOverlay.classList.add("open");
             stopModalCardAudio();
-            const audioInfo = cardAudioList[targetCard.name];
-            if(!audioInfo) return;
             pauseMainBGM();
-            isPlayingSound = true;
-            const audio = new Audio(audioInfo.src);
-            audio.volume = audioInfo.vol;
-            audio.play().catch(e=>{});
-            modalPlayingCard = audio;
-            audio.onended = () => {
-                isPlayingSound = false;
-                safeResumeBGM();
-            };
+            const audioInfo = cardAudioList[targetCard.name];
+            if(audioInfo){
+                const audio = new Audio(audioInfo.src);
+                audio.volume = audioInfo.vol;
+                audio.play().catch(e=>{});
+                modalPlayingCard = audio;
+                audio.onended = null;
+            }
         };
         gridWrap.appendChild(cardBox);
     });
     albumContainer.appendChild(gridWrap);
 }
 
-//一键解锁全部卡牌测试
+//一键解锁测试彩蛋
 function unlockAllCards(){
     cardDatabase.forEach(card=>{
         if(!cardAlbumData[card.name]){
