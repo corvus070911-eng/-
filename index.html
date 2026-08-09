@@ -732,13 +732,13 @@
 <script>
 // ===========音频资源【自行替换链接】===========
 const homeBgm = new Audio();
-homeBgm.src = "BGM_MAIN_LINK";
+homeBgm.src = "./mainBGM.mp3";
 homeBgm.loop = true;
 homeBgm.volume = 0.35;
 let homeBgmStatus = false;
 
 const drawAnimAudio = new Audio();
-drawAnimAudio.src = "BGM_DRAW_LINK";
+drawAnimAudio.src = "./chouka.mp3";
 drawAnimAudio.loop = false;
 drawAnimAudio.volume = 0.4;
 
@@ -757,6 +757,7 @@ const cardAudioList = {
 };
 
 let currentCardVoice = null;
+let modalPlayingCard=null
 let drawTicket = 15;
 const ticketDom = document.getElementById("drawTicket");
 
@@ -782,7 +783,11 @@ function stopCardAudio(){
         currentCardVoice = null;
     }
 }
-
+ if (modalPlayingCard) {
+        modalPlayingCard.pause();
+        modalPlayingCard = null;
+    }
+}
 function playCardMusic(cardName){
     stopCardAudio();
     const audioInfo = cardAudioList[cardName];
@@ -840,6 +845,7 @@ completeEasterOverlay.onclick = function(){
 //大图弹窗关闭
 modalOverlay.onclick = function(){
     modalOverlay.classList.remove("open");
+   stopAllCardAudio();
 }
 
 function hideAllPage() {
@@ -847,12 +853,14 @@ function hideAllPage() {
 }
 
 function backMainPage() {
+    stopAllCardAudio();
     hideAllPage();
     document.getElementById("pageMain").classList.add("active");
     checkAllCardComplete();
 }
 
 function openAlbum() {
+    stopAllCardAudio();
     hideAllPage();
     document.getElementById("pageAlbum").classList.add("active");
     renderAlbum();
@@ -938,6 +946,7 @@ function closeShuffleAnim() {
 }
 
 function startDrawProcess() {
+    stopAllCardAudio();
     if(drawTicket <= 0){
         alert("祈愿次数已用尽！");
         return;
@@ -973,6 +982,7 @@ function showResultDirectly() {
 }
 
 function resetFlipBackHome() {
+    stopAllCardAudio();
     resetCardFlip();
     setTimeout(() => backMainPage(), 600);
 }
@@ -1021,12 +1031,21 @@ function renderAlbum() {
             <div class="album-count">持有 ×${cardAlbumData[cardName]}</div>
         `;
         //图鉴卡片点击放大弹窗【修复完成】
-        cardBox.onclick = function () {
-            modalBigImg.src = targetCard.img;
-            modalCardName.innerText = targetCard.name;
-            modalCardRarity.innerText = targetCard.rarity;
-            modalOverlay.classList.add("open");
-        };
+       cardBox.onclick = function () {
+    modalBigImg.src = targetCard.img;
+    modalCardName.innerText = targetCard.name;
+    modalCardRarity.innerText = targetCard.rarity;
+    modalOverlay.classList.add("open");
+    // 新增：图鉴弹窗播放卡牌专属语音
+    stopAllCardAudio();
+    const audioInfo = cardAudioList[targetCard.name];
+    if(audioInfo){
+        const audio = new Audio(audioInfo.src);
+        audio.volume = audioInfo.vol;
+        audio.play().catch(e=>{});
+        modalPlayingCard = audio;
+    }
+};
         gridWrap.appendChild(cardBox);
     });
     albumContainer.appendChild(gridWrap);
