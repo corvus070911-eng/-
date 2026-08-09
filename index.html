@@ -650,7 +650,7 @@ homeBgm.loop = true;
 homeBgm.volume = 0.35;
 let homeBgmStatus = false;
 const drawAnimAudio = new Audio();
-drawAnimAudio.src = "./chouka.mp3";
+drawAnimAudio.src = "./chouka";
 drawAnimAudio.loop = false;
 drawAnimAudio.volume = 0.4;
 const cardAudioList = {
@@ -666,22 +666,30 @@ const cardAudioList = {
     "隐藏卡A迦尔纳":{src:"./jiahidden.mp3",vol:0.4},
     "隐藏卡B难敌":{src:"./nanhidden.mp3",vol:0.4},
 };
-// 音频全局变量
-let currentCardVoice = null;
-let modalPlayingCard = null;
+// 音频全局变量 分离两套语音互不干扰
+let currentCardVoice = null; // 抽卡结果页语音
+let modalPlayingCard = null;  // 图鉴弹窗语音
 let drawTicket = 15;
 const ticketDom = document.getElementById("drawTicket");
 
-// 统一停止所有卡牌语音函数
-function stopAllCardAudio() {
+// 只停止抽卡页面语音
+function stopDrawCardAudio() {
     if (currentCardVoice) {
         currentCardVoice.pause();
         currentCardVoice = null;
     }
+}
+// 只停止图鉴弹窗语音
+function stopModalCardAudio() {
     if (modalPlayingCard) {
         modalPlayingCard.pause();
         modalPlayingCard = null;
     }
+}
+// 停止全部卡牌语音（切页/关闭弹窗统一调用）
+function stopAllCardAudio() {
+    stopDrawCardAudio();
+    stopModalCardAudio();
 }
 
 function toggleHomeBGM(){
@@ -698,14 +706,9 @@ function playDrawAudio(){
     drawAnimAudio.currentTime = 0;
     drawAnimAudio.play().catch(e=>{});
 }
-function stopCardAudio(){
-    if(currentCardVoice){
-        currentCardVoice.pause();
-        currentCardVoice = null;
-    }
-}
+// 抽卡页面播放卡牌语音：仅关闭图鉴语音，不关闭自身
 function playCardMusic(cardName){
-    stopAllCardAudio();
+    stopModalCardAudio(); // 只停图鉴语音，保留抽卡音频逻辑
     const audioInfo = cardAudioList[cardName];
     if(!audioInfo) return;
     const audio = new Audio(audioInfo.src);
@@ -756,7 +759,7 @@ completeEasterOverlay.onclick = function(){
 //大图弹窗关闭（关闭同时停止图鉴卡牌语音）
 modalOverlay.onclick = function(){
     modalOverlay.classList.remove("open");
-    stopAllCardAudio();
+    stopModalCardAudio();
 }
 function hideAllPage() {
     document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
@@ -770,6 +773,7 @@ function backMainPage() {
 function openAlbum() {
     hideAllPage();
     document.getElementById("pageAlbum").classList.add("active");
+    stopDrawCardAudio(); // 打开图鉴时关掉抽卡页面语音
     renderAlbum();
 }
 function resetCardFlip() {
@@ -887,7 +891,7 @@ function checkAllCardComplete(){
 function renderAlbum() {
     albumContainer.innerHTML = "";
     if (obtainOrder.length === 0) {
-        albumContainer.innerHTML = `<p class="empty-album">图鉴尚且空白，前往祈愿收集史诗卡牌。</p>`;
+        albumContainer.innerHTML = `<p class="empty-album">图鉴尚且空白，前往祈愿收集史诗卡牌。</p >`;
         return;
     }
     const uniqueCardList = [];
@@ -906,7 +910,7 @@ function renderAlbum() {
         const cardBox = document.createElement("div");
         cardBox.className = "album-card";
         cardBox.innerHTML = `
-            <img src="${targetCard.img}">
+            < img src="${targetCard.img}">
             <div class="album-card-name">${targetCard.name}</div>
             <div class="album-card-rarity">${targetCard.rarity}</div>
             <div class="album-count">持有 ×${cardAlbumData[cardName]}</div>
@@ -917,7 +921,7 @@ function renderAlbum() {
             modalCardName.innerText = targetCard.name;
             modalCardRarity.innerText = targetCard.rarity;
             modalOverlay.classList.add("open");
-            stopAllCardAudio();
+            stopModalCardAudio(); // 只停上一个图鉴语音
             const audioInfo = cardAudioList[targetCard.name];
             if(audioInfo){
                 const audio = new Audio(audioInfo.src);
@@ -930,7 +934,7 @@ function renderAlbum() {
     });
     albumContainer.appendChild(gridWrap);
 }
-//=====作弊函数，一键集齐全部卡牌，测试使用=====
+//=====作弊函数，一键集齐全部卡牌，测试彩蛋使用=====
 function unlockAllCards(){
     cardDatabase.forEach(card=>{
         if(!cardAlbumData[card.name]){
